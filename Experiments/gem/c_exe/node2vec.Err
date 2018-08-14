@@ -1,0 +1,10 @@
+--------
+/home/greenisme/Documents/Embedding/GEM-master/gem/c_exe/node2vec.Err
+Thu Mar  1 10:06:56 2018
+Execution stopped: IsInt(false, 0, 0, Val) [Reason:'YWP_Webequie'], file ../../glib-core/dt.h, line 578
+--------
+--------
+/home/greenisme/Documents/Embedding/GEM-master/gem/c_exe/node2vec.Err
+Thu Mar  1 16:44:15 2018
+Execution stopped: IsNode(SrcNId) && IsNode(DstNId) [Reason:'0 or -1 not a node.'], file ../../snap-core/network.h, line 771
+--------

@@ -1,0 +1,17 @@
+from joblib import Parallel, delayed
+import multiprocessing
+import math
+
+L = [1,2,4]
+
+def function(i,liste):
+    M = []
+    M.append(math.factorial(i))
+    return M
+
+num_cores = multiprocessing.cpu_count()
+print(num_cores)
+
+result = Parallel(n_jobs = num_cores, verbose=15, backend='multiprocessing')(delayed(function)(i,L) for i in range(10))
+
+print(result)

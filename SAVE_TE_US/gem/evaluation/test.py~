@@ -1,0 +1,16 @@
+import networkx as nx
+g=nx.Graph()
+g.add_edge("A","B")
+
+g.add_node("C",weight=1)
+g2=g.copy()
+g2.add_edge("A","C")
+g2.add_node("D")
+g2.add_node("F")
+g2.add_node("G")
+
+g3 = nx.Graph()
+#g3.add_node("E")
+
+from ged4py.algorithm import graph_edit_dist
+print(graph_edit_dist.compare(g3,g2))

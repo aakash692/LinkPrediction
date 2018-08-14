@@ -1,0 +1,179 @@
+from scipy.spatial.distance import cdist
+from scipy.stats import pearsonr
+from heapq import nlargest
+import numpy as np
+import networkx as nx
+from ged4py.algorithm import graph_edit_dist
+from time import time
+import collections
+from sklearn.decomposition import PCA, TruncatedSVD, FastICA, NMF
+from sklearn.manifold import MDS
+from pandas import DataFrame
+
+
+
+
+def embedding_distance(embedding, metric='euclidean'):
+    """Returns a 2D-array whose [i][j] is the distance between vector i and j of embedding """
+    return cdist(embedding, embedding, metric)
+
+def neighbors_dissimilarity(adjacency_matrix, embedding, metric='euclidean'):
+    """For every node i in the graph G, computes neighbors_list the list of neighbors of i in G,
+    then computes the list indices of the degree(i) nearest nodes in the embedding. 
+    Finally, computes the fraction of nodes that are not in common in the lists.
+        
+    For example, node '5' has three neighbors in G ['0','2','3']. 
+    In the embedding, the three nearest nodes to '5' are ['0','1','3']
+    Fraction of nodes not in common = 1 - fraction of nodes in common = 1 - 2/3 = 1-3"""
+
+    print(embedding)
+    dist = embedding_distance(embedding, metric)
+    print(dist)
+    D = []
+    for j in range(len(adjacency_matrix)): #for every node
+        maximum = np.copy(dist[j]) #computes the distances between j and every node in the graph
+        maximum.sort() #order those distances
+        rank = int(sum(adjacency_matrix[j])) #number of neighbors (degree of node j)
+        maxi = maximum[rank] #keep only the degree(j) nearest
+        #maxi = nlargest(rank, dist[j])[-1]
+        eps = 1e-10 #allowed error in the computation of the distances
+        maxi += eps
+        neighbors_list = [int(n*i) for n,i in enumerate(adjacency_matrix[j]) if int(i) !=0] #list of neighbors of j in G
+        indices = [n for n,i in enumerate(dist[j]) if i <= maxi]
+        indices.remove(j) #we don't want the node j to be itself in the list
+        indices = [indices[i] for i in range(len(neighbors_list))] #we take exactly the degree(j) nearest nodes in the embedding
+        D.append(1-float(len(set(indices)&set(neighbors_list)))/float(len(indices)))#dissimilarity of neighbors_list and indices
+    return D
+
+def structural_equivalence(adjacency_matrix, embedding, metric='euclidean'):
+    number_nodes = len(adjacency_matrix)
+    A = embedding_distance(adjacency_matrix, metric)
+    B = embedding_distance(embedding, metric)
+    C = []
+    D = []
+    for i in range(number_nodes):
+        for j in range(number_nodes):
+            C.append(A[i][j])
+            D.append(B[i][j])
+    return pearsonr(C,D)
+    
+
+def histog(adjacency_matrix, embedding, metric='euclidean', number_bins=10, bin_size=0.01):
+    hist2 = [0 for i in range(number_bins)]
+    normalization = [0 for i in range(number_bins)]
+    bin_size = 0.01
+    dist = embedding_distance(embedding, metric) #Computes distance between each pair of the two collections of inputs.
+    for j in range(len(adjacency_matrix)):        #for every node
+        for k in range(len(adjacency_matrix)):    #for every pair of nodes
+            if adjacency_matrix[j][k] == 1:       #if there is an edge between j and k in the graph
+                for l in range(number_bins):
+                    if l*bin_size <= dist[j][k] < (l+1)*bin_size:
+                        hist2[l] += 1
+            for m in range(number_bins):
+                if m*bin_size <= dist[j][k] < (m+1)*bin_size:
+                    normalization[m] += 1
+                            
+
+    for n in range(len(hist2)):
+        if normalization[n] ==0: normalization[n] = 1
+        hist2[n] = float(hist2[n]) / float(normalization[n])
+                    
+    return hist2
+
+def isomorphic_equivalence(embedding, edit_distances, metric='euclidean'):
+    number_nodes = len(embedding)
+    dist = embedding_distance(embedding, metric)
+    embedding_distances = []
+    for i in range(number_nodes):
+        for j in range(number_nodes):
+            embedding_distances.append(dist[i][j])
+    return pearsonr(edit_distances, embedding_distances)
+
+
+def parallel_graph_edit_distances(G, i, number_of_nodes, timing, normalization = True, directed = False):
+    edit_distances = []
+    print("Graph edit distance computation: " + repr(int(i/number_of_nodes*100)) + "%", "time elapsed: "+ repr(time()-timing))
+    for j in range(number_of_nodes):
+        A = nx.ego_graph(G,i,radius=1, center=False, undirected= not directed, distance=None)
+        B = nx.ego_graph(G,j,radius=1, center=False, undirected= not directed, distance=None)
+        edit_distances.append(graph_edit_dist.compare(A,B, normalized = normalization))
+    return edit_distances
+
+
+def pca_adjacency_matrix(adjacency_matrix, dimension):
+    pca = PCA(n_components = dimension)
+    return pca.fit_transform(adjacency_matrix)
+
+
+def svd_adjacency_matrix(adjacency_matrix, dimension):
+    svd = TruncatedSVD(n_components = dimension)
+    return svd.fit_transform(adjacency_matrix)
+
+
+def ica_adjacency_matrix(adjacency_matrix, dimension):
+    ica = FastICA(n_components = dimension)
+    return ica.fit_transform(adjacency_matrix)
+
+
+def nmf_adjacency_matrix(adjacency_matrix, dimension):
+    nmf = NMF(n_components = dimension)
+    return nmf.fit_transform(adjacency_matrix)
+
+
+def mds_shortest_paths(G, dimension):
+    X = nx.all_pairs_shortest_path_length(G) #computes the shortest path length between every pair of nodes of G 
+    df = DataFrame.as_matrix(DataFrame(dict(X)).T.fillna(0)) #returns it as a matrix whose element i,j is the shortest path length between node i and j
+    for i in range(len(df)):
+        for j in range(len(df)):
+            if df[i][j] !=0:
+                df[i][j] -= 1
+    mds = MDS(n_components = dimension, metric = True, dissimilarity = 'precomputed')
+    return mds.fit_transform(df)
+
+
+
+
+
+
+        
+
+def dict_to_emb(dict):
+    od = collections.OrderedDict(sorted(dict.items()))
+    emb = []
+    for k, v in od.items():
+        emb.append(v)
+    return emb
+
+
+def emb_to_dict(emb):
+    dict = {}
+    for i in range(len(emb)):
+        dict[i] = emb[i]
+    return dict
+
+
+def read_emb(file_to_read):
+    f = open(file_to_read, 'r')
+    #first line is the number of nodes and edges
+    dict = {}
+    for i, line in enumerate(f):
+        if i > 0: #if you want to discard the first line, depending on how the file has been written
+            a = line.split()
+            b = []
+            for i in range(1,len(a)):
+                b.append(float(a[i]))
+            dict[int(a[0])] = b
+    f.close()
+    return dict
+
+
+def write_emb(filename, embedding):
+    #write the embedding as a .tsv file
+    with open(filename,'w') as myfile:
+        for i in range(len(embedding)):
+            string = str(embedding[i][0].real)
+            for j in range(dimension-1):
+                string = string + '\t'+str(embedding[i][j+1].real)
+            string = string + '\n'
+            myfile.write(string)
+

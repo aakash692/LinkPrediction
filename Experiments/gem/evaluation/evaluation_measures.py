@@ -123,6 +123,7 @@ def create_edge_dataset(train_digraph, test_digraph, ty, is_undirected=True):
         p_samples=p_samples[:len(n_samples)]
 
     random.shuffle(n_samples)
+    # p_samples=p_samples[:len(p_samples)//10]
     print (len(p_samples),len(n_samples))
     return p_samples, n_samples
 
@@ -530,27 +531,46 @@ def check_samples(train_digraph, test_digraph, is_undirected=True):
 def evaluate_unsupervised_all(di_graph, is_undirected=True):
 
     train_digraph, test_digraph = train_test_split.splitDiGraphToTrainTest2(di_graph, train_ratio = 0.8, is_undirected=True)
+    # train_digraph, test_digraph = train_test_split.splitDiGraphToTrainTest2(di_graph, train_ratio = 0.75, is_undirected=True)
+    # train_digraph1, test_digraph = evaluation_util.splitDiGraphToTrainTest(
+    #     test_digraph,
+    #     train_ratio=0.2,
+    #     is_undirected=is_undirected
+    # )
+
+    # train_digraph_temp=train_digraph.copy()
+    # for (st,ed) in train_digraph1.edges():
+    #     train_digraph_temp.add_edge(st,ed)
+
+    # sample_edges = sample_edge_new(train_digraph_temp,test_digraph, -1)
+    
     sample_edges = sample_edge_new(train_digraph,test_digraph, -1)
 
-    test_digraph1, node_l = graph_util.sample_graph(test_digraph, 1024)
-    AP=[];ROC=[];MAP=[]
-    heurestics = [cn,jc,pa,aa]
+    filtered_edge_list = getscore3(train_digraph, sample_edges, aa)
+    AP1, ROC1 = scores.computeAP_ROC(filtered_edge_list, test_digraph)
+    print (AP1,ROC1)
+    return AP1,ROC1
 
-    for x in heurestics:
+    # test_digraph1, node_l = graph_util.sample_graph(test_digraph, 1024)
+    # AP=[];ROC=[];MAP=[]
+    # # heurestics = [cn,jc,pa,aa]
+    # heurestics = [aa]
 
-        estimated_adj = getscore1(train_digraph, node_l, x)
-        predicted_edge_list = evaluation_util.getEdgeListFromAdjMtx(estimated_adj,is_undirected=True)
-        filtered_edge_list = [e for e in predicted_edge_list if not train_digraph.has_edge(node_l[e[0]], node_l[e[1]])]
-        MAP1 = scores.computeMAP(filtered_edge_list, test_digraph1)
-        MAP.append(MAP1)
+    # for x in heurestics:
+
+    #     estimated_adj = getscore1(train_digraph, node_l, x)
+    #     predicted_edge_list = evaluation_util.getEdgeListFromAdjMtx(estimated_adj,is_undirected=True)
+    #     filtered_edge_list = [e for e in predicted_edge_list if not train_digraph.has_edge(node_l[e[0]], node_l[e[1]])]
+    #     MAP1 = scores.computeMAP(filtered_edge_list, test_digraph1)
+    #     MAP.append(MAP1)
         
-        filtered_edge_list = getscore3(train_digraph, sample_edges, x)
-        AP1, ROC1 = scores.computeAP_ROC(filtered_edge_list, test_digraph)
-        AP.append(AP1);ROC.append(ROC1)
+    #     filtered_edge_list = getscore3(train_digraph, sample_edges, x)
+    #     AP1, ROC1 = scores.computeAP_ROC(filtered_edge_list, test_digraph)
+    #     AP.append(AP1);ROC.append(ROC1)
 
-        print (AP1,ROC1,MAP1)
+    #     print (AP1,ROC1,MAP1)
 
-    return AP, ROC, MAP
+    # return AP, ROC, MAP
 
 def evaluate_supervised(di_graph, graph_embedding, is_undirected=True):
 
@@ -563,7 +583,7 @@ def evaluate_supervised(di_graph, graph_embedding, is_undirected=True):
     
     X, _ = graph_embedding.learn_embedding(graph=train_digraph, no_python=False)
 
-    trp, trn = create_edge_dataset(train_digraph, train_digraph1, 2)
+    trp, trn = create_edge_dataset(train_digraph, train_digraph1)
     trd, trl = create_vector_dataset(trp, trn, hadamard2, X)
     clasifier = train_classifier(trd, trl)
 
@@ -810,7 +830,167 @@ def calc_aproc_s(embedding, X1, X2, train_digraph, train_digraph1, test_digraph,
     print (AP2,ROC2)
     return AP1,AP2,ROC1,ROC2
     
-def evaluate_supervised_new(train_digraph, train_digraph1, test_digraph, trp1, trn1, trp2, trn2, trp3, trn3, sample_edges, l_emb, hads, is_undirected=True):
+# def evaluate_supervised_new(digraph, embeddings, hads, is_undirected=True):
+def evaluate_supervised_new(train_digraph, embeddings, hads, is_undirected=True):
+
+    train_digraph, test_digraph = train_test_split.splitDiGraphToTrainTest2(train_digraph, train_ratio = 0.6, is_undirected=True)
+    for (st,ed) in train_digraph.edges():
+        if(test_digraph.has_edge(st,ed)):
+            test_digraph.remove_edge(st,ed)
+        
+    train_digraph1, test_digraph = evaluation_util.splitDiGraphToTrainTest(
+        test_digraph,
+        train_ratio=0.5,
+        is_undirected=is_undirected
+    )
+
+    l_emb = []
+    combine = []
+    for emb in embeddings:
+        X, _ = emb.learn_embedding(graph=train_digraph, no_python=False)
+        l_emb.append(X)
+
+    for had in hads:
+        if(had==1):
+            combine.append(hadamard1)
+        elif(had==0):
+            combine.append(hadamard2)
+
+    # combine.append(dotp1)
+    
+    print ("embeddings learned")
+
+    trp, trn = create_edge_dataset(train_digraph, train_digraph1)
+    trd, trl = create_mix_dataset(trp, trn, train_digraph, l_emb, combine)
+    mean=np.mean(trd,axis=0)
+    std=np.std(trd,axis=0)
+    trd=(trd-mean)/std
+    clasifier = train_classifier(trd, trl)
+    # print (clasifier.coef_)
+    # print (clasifier.intercept_)
+    
+    train_digraph_temp=train_digraph.copy()
+    for (st,ed) in train_digraph1.edges():
+        train_digraph_temp.add_edge(st,ed)
+
+    sample_edges = sample_edge_new(train_digraph_temp,test_digraph,-1,num_edges=500000)
+
+    # co=0
+    # for (st,ed) in sample_edges:
+    #     for (st1,ed1) in trn:
+    #         if(st==st1 and ed==ed1):
+    #             if(test_digraph.has_edge(st,ed)):
+    #                 print ("1")
+
+    #     for (st1,ed1) in trp:
+    #         if(st==st1 and ed==ed1):
+    #             if(test_digraph.has_edge(st,ed)):
+    #                 print ("2")
+    #             else:
+    #                 print ("3")
+        
+    # l_emb1 = []
+    # for emb in embeddings:
+    #     X, _ = emb.learn_embedding(graph=train_digraph_temp, no_python=False)
+    #     l_emb1.append(X)
+    #     break
+    # l_emb1.append(l_emb[1])
+
+    print ("embeddings learned")
+
+    # filtered_edge_list = getscore9(train_digraph, sample_edges, clasifier, l_emb1, combine, mean, std)
+    # AP, ROC = scores.computeAP_ROC(filtered_edge_list, test_digraph)
+    # print (AP,ROC)
+
+    filtered_edge_list = getscore9(train_digraph_temp, sample_edges, clasifier, l_emb, combine, mean, std)
+    AP, ROC = scores.computeAP_ROC(filtered_edge_list, test_digraph)
+    print (AP,ROC)
+
+    trd, trl = create_score_dataset(trp, trn, allh, train_digraph)
+    mean=np.mean(trd,axis=0)
+    std=np.std(trd,axis=0)
+    trd=(trd-mean)/std
+    clasifier = train_classifier(trd, trl)
+    filtered_edge_list = getscore7(train_digraph_temp, sample_edges, clasifier, allh, mean, std)
+    AP2, ROC2 = scores.computeAP_ROC(filtered_edge_list, test_digraph)
+    print (AP2,ROC2)
+
+    # G11 = train_digraph.to_undirected()
+    # f1=[]
+    # f2=[]
+    # for (st,ed,w) in filtered_edge_list:
+    #     f1.append(w)
+    #     f2.append(cn(G11,st,ed))
+
+    # f1=np.array(f1)
+    # f2=np.array(f2)
+    # ind1 = np.argsort(-1*f1)
+    # ind2 = np.argsort(-1*f2)
+    # print (ind1[:1000])
+    # print (ind2[:1000])
+    # print (f1[ind1[:1000]])
+    # print (f2[ind1[:1000]])
+
+
+
+    # filtered_edge_list = getscore3(train_digraph_temp, sample_edges, aa)
+    # AP, ROC = scores.computeAP_ROC(filtered_edge_list, test_digraph)
+    # print (AP,ROC)
+
+    return AP,ROC
+
+    # labels=[]
+    # score=[]
+    # dist=[]
+    # G=train_digraph.to_undirected()
+    # print (len(filtered_edge_list))
+    # for (st,ed,w) in filtered_edge_list:
+    #     # if not(nx.shortest_path_length(G,source=st,target=ed)==2):
+    #     #     continue
+    #     if(test_digraph.has_edge(st,ed)):
+    #         labels.append(1)
+    #     else:
+    #         labels.append(0)
+    #     score.append(w)
+    # ap = average_precision_score(labels, score)
+    # print (ap)
+
+    # ind = np.argsort(-1*np.asarray(score))
+    # labels = np.array(labels)
+    # print (labels[ind[:1000]])
+    
+    # labels=[]
+    # score=[]
+    # dist=[]
+    # G=train_digraph.to_undirected()
+    # for (st,ed,w) in filtered_edge_list:
+        # if (nx.shortest_path_length(G,source=st,target=ed)==2):
+        #     continue
+    #     if(test_digraph.has_edge(st,ed)):
+    #         labels.append(1)
+    #     else:
+    #         labels.append(0)
+    #     score.append(w)
+    # ap = average_precision_score(labels, score)
+    # print (ap)
+
+    # ind = np.argsort(-1*np.asarray(score))
+    # labels = np.array(labels)
+    # print (labels[ind[:1000]])
+        
+    # test_digraph, node_l = graph_util.sample_graph(test_digraph, 1024)
+    # estimated_adj = getscore8(train_digraph, node_l, clasifier, l_emb1, combine)
+    # predicted_edge_list = evaluation_util.getEdgeListFromAdjMtx(estimated_adj,is_undirected=True)
+    # filtered_edge_list = [e for e in predicted_edge_list if not train_digraph.has_edge(node_l[e[0]], node_l[e[1]])]
+    # MAP = scores.computeMAP(filtered_edge_list, test_digraph)
+
+    # print (MAP)
+    MAP=0
+    
+    return AP, ROC, MAP
+
+
+def evaluate_supervised_new1(train_digraph, train_digraph1, test_digraph, trp1, trn1, trp2, trn2, trp3, trn3, sample_edges, l_emb, hads, is_undirected=True):
 
     combine=[]
     for had in hads:
@@ -819,37 +999,75 @@ def evaluate_supervised_new(train_digraph, train_digraph1, test_digraph, trp1, t
         elif(had==0):
             combine.append(hadamard2)
 
+    # create dataset for training the classifier with appropriate combination of embeddings and heuristics.
+
+    # only heuristics
     trd1, trl1 = create_mix_dataset(trp1, trn1, train_digraph, [], combine, func_new)
+    # combination of embeddings
     trd2, trl2 = create_mix_dataset(trp2, trn2, train_digraph, l_emb, combine, func_new1)
+    # combination of embeddings and heuristics
     trd3, trl3 = create_mix_dataset(trp3, trn3, train_digraph, l_emb, combine, func_new)
+
+    # learn classifiers for the three types of featre combination.
 
     mean1=np.mean(trd1,axis=0)
     std1=np.std(trd1,axis=0)
-    # std[0]=1
+    for x in xrange(len(std1)):
+        std1[x]=1;
     trd1=(trd1-mean1)/std1
     clasifier1 = train_classifier(trd1, trl1)
     
     mean2=np.mean(trd2,axis=0)
     std2=np.std(trd2,axis=0)
-    std2[0]=1
+    for x in xrange(len(std2)):
+        std2[x]=1;
     trd2=(trd2-mean2)/std2
     clasifier2 = train_classifier(trd2, trl2)
-    # print (clasifier.coef_)
-
+    
     mean3=np.mean(trd3,axis=0)
     std3=np.std(trd3,axis=0)
-    # std[0]=1
+    for x in xrange(len(std3)):
+        std3[x]=1;
     trd3=(trd3-mean3)/std3
     clasifier3 = train_classifier(trd3, trl3)
-    # print (clasifier.coef_)
-
+    
     train_digraph_temp=train_digraph.copy()
     for (st,ed) in train_digraph1.edges():
         train_digraph_temp.add_edge(st,ed)
 
+    f2=[]
+    f3=[]
+    G=train_digraph_temp.to_undirected()
+    for (st,ed) in sample_edges:
+        dis=nx.shortest_path_length(G,source=st,target=ed)
+        if (dis==2):
+            f2.append((st,ed))
+        else:
+            f3.append((st,ed))
+        
+    # use train_graph_temp=train_graph + train_graph1 for calculating heuristic scores. 
+
+
+    # use this section for evaluating on distance 2 edges
+
+    # filtered_edge_list1 = getscore9(train_digraph_temp, f2, clasifier1, [], combine, func_new, mean1, std1)
+    # filtered_edge_list2 = getscore9(train_digraph_temp, f2, clasifier2, l_emb, combine, func_new1, mean2, std2)
+    # filtered_edge_list3 = getscore9(train_digraph_temp, f2, clasifier3, l_emb, combine, func_new, mean3, std3)
+
+
+    # use this section for evaluating on distance 2+ edges
+    
+    # filtered_edge_list1 = getscore9(train_digraph_temp, f3, clasifier1, [], combine, func_new, mean1, std1)
+    # filtered_edge_list2 = getscore9(train_digraph_temp, f3, clasifier2, l_emb, combine, func_new1, mean2, std2)
+    # filtered_edge_list3 = getscore9(train_digraph_temp, f3, clasifier3, l_emb, combine, func_new, mean3, std3)
+
+
+    # use this section for evaluating on all edges
+    
     filtered_edge_list1 = getscore9(train_digraph_temp, sample_edges, clasifier1, [], combine, func_new, mean1, std1)
     filtered_edge_list2 = getscore9(train_digraph_temp, sample_edges, clasifier2, l_emb, combine, func_new1, mean2, std2)
     filtered_edge_list3 = getscore9(train_digraph_temp, sample_edges, clasifier3, l_emb, combine, func_new, mean3, std3)
+
 
     AP11, ROC11 = scores.computeAP_ROC(filtered_edge_list1, test_digraph)
     print (AP11,ROC11)
@@ -859,3 +1077,147 @@ def evaluate_supervised_new(train_digraph, train_digraph1, test_digraph, trp1, t
     print (AP13,ROC13)
 
     return AP11,ROC11,AP12,ROC12,AP13,ROC13
+    
+    # prec_curve11,_ = scores.computePrecisionCurve(filtered_edge_list1, test_digraph)
+    # prec_curve12,_ = scores.computePrecisionCurve(filtered_edge_list2, test_digraph)
+    # prec_curve13,_ = scores.computePrecisionCurve(filtered_edge_list3, test_digraph)
+
+    
+    # plt.plot(np.arange(min(100,len(prec_curve11))),prec_curve11[:100],'b',label='embeddings')
+    # plt.plot(np.arange(min(100,len(prec_curve21))),prec_curve12[:100],'r',label='heurestics')
+    # plt.plot(np.arange(min(100,len(prec_curve21))),prec_curve123[:100],'r',label='heurestics')
+    # plt.legend()
+    # plt.show()
+
+    
+    # print (AP21,ROC21)
+    # AP22, ROC22 = scores.computeAP_ROC(f3, test_digraph)
+    # print (AP22,ROC22)
+    # AP23, ROC23 = scores.computeAP_ROC(f4, test_digraph)
+    # print (AP23,ROC23)
+    # AP24, ROC24 = scores.computeAP_ROC(f5, test_digraph)
+    # print (AP24,ROC24)
+
+    # f2=[]
+    # f3=[]
+    # f4=[]
+    # f5=[]
+    # G=train_digraph.to_undirected()
+    # for (st,ed,w) in filtered_edge_list:
+    #     # f2.append((st,ed,w))
+    #     dis=nx.shortest_path_length(G,source=st,target=ed)
+    #     if (dis==2):
+    #         f2.append((st,ed,w))
+    #     else:
+    #         f3.append((st,ed,w))
+    #     # elif (dis==3):
+    #     #     f3.append((st,ed,w))
+    #     # elif (dis==4):
+    #     #     f4.append((st,ed,w))
+    #     # else:
+    #         # f5.append((st,ed,w))
+
+    # # prec_curve11,_ = scores.computePrecisionCurve(f2, test_digraph)
+    # # prec_curve12,_ = scores.computePrecisionCurve(f3, test_digraph)
+    # # prec_curve13,_ = scores.computePrecisionCurve(f4, test_digraph)
+    # # prec_curve14,_ = scores.computePrecisionCurve(f5, test_digraph)
+    
+    # AP11, ROC11 = scores.computeAP_ROC(f2, test_digraph)
+    # print (AP11,ROC11)
+    # AP12, ROC12 = scores.computeAP_ROC(f3, test_digraph)
+    # print (AP12,ROC12)
+    # # AP13, ROC13 = scores.computeAP_ROC(f4, test_digraph)
+    # # print (AP13,ROC13)
+    # # AP14, ROC14 = scores.computeAP_ROC(f5, test_digraph)
+    # # print (AP14,ROC14)
+
+    # # plt.show()
+    # # AP, ROC = scores.computeAP_ROC(filtered_edge_list, test_digraph)
+    # # print (AP,ROC)
+
+    # trd, trl = create_mix_dataset(trp, trn, train_digraph, [], combine, func_new)
+    # mean=np.mean(trd,axis=0)
+    # std=np.std(trd,axis=0)
+    # trd=(trd-mean)/std
+    # clasifier = train_classifier(trd, trl)
+    
+    # train_digraph_temp=train_digraph.copy()
+    # for (st,ed) in train_digraph1.edges():
+    #     train_digraph_temp.add_edge(st,ed)
+
+    # filtered_edge_list = getscore9(train_digraph_temp, sample_edges, clasifier, [], combine, func_new, mean, std)
+    
+    # f2=[]
+    # f3=[]
+    # f4=[]
+    # f5=[]
+    # G=train_digraph.to_undirected()
+    # for (st,ed,w) in filtered_edge_list:
+    #     # f2.append((st,ed,w))
+    #     dis=nx.shortest_path_length(G,source=st,target=ed)
+    #     if (dis==2):
+    #         f2.append((st,ed,w))
+    #     else:
+    #         f3.append((st,ed,w))
+    #     # elif (dis==3):
+    #     #     f3.append((st,ed,w))
+    #     # elif (dis==4):
+    #     #     f4.append((st,ed,w))
+    #     # else:
+    #     #     f5.append((st,ed,w))
+
+    # # prec_curve21,_ = scores.computePrecisionCurve(f2, test_digraph)
+    # # prec_curve22,_ = scores.computePrecisionCurve(f3, test_digraph)
+    # # prec_curve23,_ = scores.computePrecisionCurve(f4, test_digraph)
+    # # prec_curve24,_ = scores.computePrecisionCurve(f5, test_digraph)
+
+    # AP21, ROC21 = scores.computeAP_ROC(f2, test_digraph)
+    # # AP, ROC = scores.computeAP_ROC(filtered_edge_list, test_digraph)
+    # # print (AP,ROC)
+
+
+    # # plt.plot(np.arange(1000),prec_curve11[:1000],'b')
+    # # plt.plot(np.arange(1000),prec_curve12[:1000],'r')
+    # # plt.plot(np.arange(1000),prec_curve21[:1000],'g')
+    # # plt.plot(np.arange(1000),prec_curve22[:1000],'y')
+    # # plt.show()
+
+    # # fig = plt.figure()
+    # # ax = plt.subplot(211)
+    # # ax.set_title('d2', fontsize=10)
+    # # box = ax.get_position()
+    # # ax.set_position([box.x0-0.05, box.y0 - box.height * 0.05,box.width*0.9, box.height])
+    # # plt.plot(np.arange(min(100,len(prec_curve11))),prec_curve11[:100],'b',label='proposed')
+    # # plt.plot(np.arange(min(100,len(prec_curve21))),prec_curve21[:100],'r',label='heurestics')
+    
+    # # ax = plt.subplot(212)
+    # # ax.set_title('d3', fontsize=10)
+    # # box = ax.get_position()
+    # # ax.set_position([box.x0-0.05, box.y0 - box.height * 0.05,box.width*0.9, box.height])
+    # # plt.plot(np.arange(min(100,len(prec_curve12))),prec_curve12[:100],'b',label='proposed')
+    # # plt.plot(np.arange(min(100,len(prec_curve22))),prec_curve22[:100],'r',label='heurestics')
+    
+    # # ax = plt.subplot(223)
+    # # ax.set_title('d4', fontsize=10)
+    # # box = ax.get_position()
+    # # ax.set_position([box.x0-0.05, box.y0 - box.height * 0.05,box.width*0.9, box.height])
+    # # plt.plot(np.arange(min(100,len(prec_curve13))),prec_curve13[:100],'b',label='proposed')
+    # # plt.plot(np.arange(min(100,len(prec_curve23))),prec_curve23[:100],'r',label='heurestics')
+    
+    # # ax = plt.subplot(224)
+    # # ax.set_title('d4+', fontsize=10)
+    # # box = ax.get_position()
+    # # ax.set_position([box.x0-0.05, box.y0 - box.height * 0.05,box.width*0.9, box.height])
+    # # plt.plot(np.arange(min(100,len(prec_curve14))),prec_curve14[:100],'b',label='proposed')
+    # # plt.plot(np.arange(min(100,len(prec_curve24))),prec_curve24[:100],'r',label='heuristics')
+
+    # # plt.legend(loc=(1.05,0))
+    # # plt.show()
+
+
+    # # print (prec_curve1)
+    # # print (prec_curve2)
+    # # print (prec_curve3)
+    # # print (prec_curve4)
+
+    # return AP12,ROC12,AP22,ROC22

@@ -12,6 +12,9 @@ from gem.embedding.verse 	import verse
 import sys
 import pickle
 
+# provide the data file name in list_graphs and specify if it is directed or not in lis_directed
+# specify the dimension of the embedding in dimensions array
+
 # list_graphs = ['gem/data/CA-AstroPh.txt']
 # list_graphs = ['gem/data/facebook_combined.txt']
 # list_directed = [False,False,True]
